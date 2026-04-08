@@ -127,6 +127,22 @@ export interface ExpirationResponse {
   timestamp: string;
 }
 
+export type ProviderReadiness =
+  | "live"
+  | "delayed"
+  | "pending_approval"
+  | "misconfigured"
+  | "unavailable";
+
+export interface ProviderStatus {
+  provider: string;
+  readiness: ProviderReadiness;
+  is_live: boolean;
+  live_quotes: boolean;
+  recommendations_enabled: boolean;
+  message: string;
+}
+
 export type SortMetric =
   | "open_interest"
   | "oi_notional"

@@ -3,6 +3,7 @@ import type {
   UnusualOptionsResponse,
   TopContractsResponse,
   ExpirationResponse,
+  ProviderStatus,
   SortMetric,
 } from "./types";
 
@@ -37,6 +38,9 @@ export const api = {
 
   expirations: (ticker: string): Promise<ExpirationResponse> =>
     fetchJSON(`${BASE}/expirations?ticker=${encodeURIComponent(ticker)}`),
+
+  providerStatus: (): Promise<ProviderStatus> =>
+    fetchJSON(toApiUrl("/api/provider/status")),
 
   exportUrl: (ticker: string, optionType?: "call" | "put", minVolume = 0, minOI = 0): string => {
     const params = new URLSearchParams({ ticker });

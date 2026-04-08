@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Activity, BarChart3, Flame, LineChart, Settings, Target, TrendingUp } from "lucide-react";
 import clsx from "clsx";
+import { api } from "@/lib/api";
+import type { ProviderStatus } from "@/lib/types";
 
 const NAV_ITEMS = [
   { label: "Dashboard",       href: "/",        icon: Activity },
@@ -13,6 +16,47 @@ const NAV_ITEMS = [
   { label: "Charts",          href: "/charts",  icon: LineChart },
   { label: "Settings",        href: "/settings",icon: Settings },
 ];
+
+const READINESS_DOT: Record<string, string> = {
+  live:             "bg-success animate-pulse-fast",
+  delayed:          "bg-yellow-400",
+  pending_approval: "bg-orange-400",
+  misconfigured:    "bg-red-500",
+  unavailable:      "bg-red-500",
+};
+
+const READINESS_LABEL: Record<string, string> = {
+  live:             "Live",
+  delayed:          "Delayed",
+  pending_approval: "Pending",
+  misconfigured:    "No config",
+  unavailable:      "Down",
+};
+
+function ProviderBadge() {
+  const [status, setStatus] = useState<ProviderStatus | null>(null);
+
+  useEffect(() => {
+    api.providerStatus().then(setStatus).catch(() => null);
+  }, []);
+
+  const provider  = status?.provider ?? "…";
+  const readiness = status?.readiness ?? "unavailable";
+  const dotClass  = READINESS_DOT[readiness] ?? "bg-text-muted";
+  const label     = READINESS_LABEL[readiness] ?? readiness;
+
+  return (
+    <div
+      title={status?.message ?? ""}
+      className="hidden sm:flex items-center gap-2 text-2xs text-text-muted px-2 py-1 rounded-md bg-bg-raised border border-bg-border cursor-default select-none"
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+      <span className="capitalize">{provider}</span>
+      <span className="text-text-disabled">·</span>
+      <span>{label}</span>
+    </div>
+  );
+}
 
 export default function TopNav() {
   const pathname = usePathname();
@@ -55,11 +99,8 @@ export default function TopNav() {
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Provider badge */}
-          <div className="hidden sm:flex items-center gap-2 text-2xs text-text-muted px-2 py-1 rounded-md bg-bg-raised border border-bg-border">
-            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-fast" />
-            Robinhood
-          </div>
+          {/* Provider badge — live status from /api/provider/status */}
+          <ProviderBadge />
         </div>
       </div>
     </nav>

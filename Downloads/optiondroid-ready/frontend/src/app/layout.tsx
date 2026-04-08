@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import TopNav from "@/components/layout/TopNav";
+import ProviderBanner from "@/components/ui/ProviderBanner";
 
 export const metadata: Metadata = {
   title: "Options Analytics",
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="min-h-screen bg-bg-base">
         <TopNav />
+        <ProviderBanner />
         <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {children}
         </main>
