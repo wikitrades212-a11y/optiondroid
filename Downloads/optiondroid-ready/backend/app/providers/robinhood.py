@@ -9,11 +9,18 @@ Performance design (two-phase bulk fetch):
   Total cold fetch for SPY (6 expirations, ~2000 contracts): ~3-4s.
 
 Provider is swappable: implement OptionsDataProvider ABC in polygon.py / tradier.py.
+
+Auth strategy (in priority order):
+  1. RH_PICKLE_B64 env var → decode pickle → verify token → skip password login.
+  2. Existing ~/.tokens/robinhood.pickle → verify token → skip password login.
+  3. RH_USERNAME + RH_PASSWORD (+ optional RH_MFA_SECRET) → fresh login.
+  Failure is cached: after the first permanent failure, all subsequent requests
+  return the same classified error without re-attempting login.
 """
 import asyncio
 import base64
 import logging
-import os
+import pickle as _pickle
 from functools import partial
 from pathlib import Path
 from typing import List, Optional
@@ -37,6 +44,8 @@ INSTRUMENTS_URL = "https://api.robinhood.com/options/instruments/"
 MARKETDATA_URL  = "https://api.robinhood.com/marketdata/options/"
 MDATA_BATCH     = 200   # IDs per market-data request (~8KB URL, well under limits)
 
+_PICKLE_PATH = Path.home() / ".tokens" / "robinhood.pickle"
+
 
 class RobinhoodProvider(OptionsDataProvider):
     _authenticated: bool = False
@@ -51,51 +60,140 @@ class RobinhoodProvider(OptionsDataProvider):
         """If RH_PICKLE_B64 is set, decode it and write to the standard pickle path."""
         if not settings.rh_pickle_b64:
             return
-        pickle_path = Path.home() / ".tokens" / "robinhood.pickle"
-        pickle_path.parent.mkdir(parents=True, exist_ok=True)
-        if not pickle_path.exists():
+        _PICKLE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if not _PICKLE_PATH.exists():
             try:
                 data = base64.b64decode(settings.rh_pickle_b64)
-                pickle_path.write_bytes(data)
+                _PICKLE_PATH.write_bytes(data)
                 logger.info(f"Restored Robinhood session pickle ({len(data)} bytes).")
             except Exception as exc:
-                logger.warning(f"Failed to restore pickle: {exc}")
+                logger.warning(f"Failed to restore pickle from RH_PICKLE_B64: {exc}")
+
+    def _try_activate_pickle(self) -> bool:
+        """
+        Load existing pickle, inject the Bearer token into the robin_stocks
+        session, and return True if the pickle contained a non-empty token.
+        Does NOT verify the token against the network — that happens lazily on
+        the first real API call.
+        """
+        if not _PICKLE_PATH.exists():
+            return False
+        try:
+            with open(_PICKLE_PATH, "rb") as fh:
+                session_data = _pickle.load(fh)
+            token = session_data.get("access_token", "")
+            token_type = session_data.get("token_type", "Bearer")
+            if not token:
+                logger.debug("Pickle exists but contains no access_token.")
+                return False
+            rh_helper.update_session("Authorization", f"{token_type} {token}")
+            rh_helper.set_login_state(True)
+            logger.info("Robinhood: activated session from pickle (token not yet network-verified).")
+            return True
+        except Exception as exc:
+            logger.warning(f"Could not load pickle: {exc}")
+            return False
+
+    def _classify_login_error(self, message: str) -> str:
+        """
+        Map a raw exception/response message to a user-friendly classified error.
+        Returns the classified string (does NOT set _login_error itself).
+        """
+        msg = message.lower()
+        if "unable to log in" in msg or "invalid credentials" in msg or "credentials" in msg:
+            return (
+                "Invalid username or password. "
+                "Check RH_USERNAME / RH_PASSWORD in Railway Variables."
+            )
+        if "mfa" in msg or "two-factor" in msg or "otp" in msg:
+            return (
+                "MFA authentication failed. "
+                "Ensure RH_MFA_SECRET is the correct base-32 TOTP secret, not a one-time code."
+            )
+        if "challenge" in msg or "verification_workflow" in msg or "device" in msg:
+            return (
+                "Robinhood device/identity challenge required. "
+                "Complete the challenge interactively with save_login.py, "
+                "then encode the result as RH_PICKLE_B64."
+            )
+        if "too many" in msg or "rate" in msg or "throttl" in msg:
+            return (
+                "Robinhood rate-limited this login attempt. "
+                "Wait a few minutes before redeploying."
+            )
+        if "token" in msg and ("expired" in msg or "invalid" in msg):
+            return (
+                "Stored session token is expired or invalid. "
+                "Re-run save_login.py to refresh RH_PICKLE_B64."
+            )
+        return f"Robinhood login error: {message}"
 
     async def _ensure_auth(self) -> None:
         async with self._lock:
             if self._authenticated:
                 return
-            # Don't retry if a previous login attempt already failed permanently.
+
+            # Cached failure — do not retry on every request.
             if self._login_failed:
                 raise RuntimeError(f"Robinhood login unavailable: {self._login_error}")
-            # Fail fast — never call rh.login with empty credentials because
-            # robin_stocks falls back to interactive input() prompts, which
-            # raise EOFError on Railway (no terminal).
+
+            # ── Strategy 1: pickle session (preferred, avoids password login) ──
+            self._restore_pickle()   # no-op if RH_PICKLE_B64 not set
+            if self._try_activate_pickle():
+                # Mark authenticated optimistically; first API call will reveal
+                # token expiry, which will propagate as a data error (not a login loop).
+                self._authenticated = True
+                return
+
+            # ── Strategy 2: fresh password login ─────────────────────────────
             if not settings.rh_username or not settings.rh_password:
                 self._login_failed = True
                 self._login_error = (
-                    "RH_USERNAME and RH_PASSWORD environment variables must be set. "
-                    "Configure them in the Railway dashboard."
+                    "No credentials available: set RH_USERNAME + RH_PASSWORD "
+                    "(or RH_PICKLE_B64 for a pre-authenticated session) "
+                    "in Railway Variables."
                 )
-                logger.error(f"Robinhood login skipped: {self._login_error}")
-                raise RuntimeError(self._login_error)
-            self._restore_pickle()
-            try:
-                mfa_code: Optional[str] = None
-                if settings.rh_mfa_secret:
+                logger.error(f"Robinhood: {self._login_error}")
+                raise RuntimeError(f"Robinhood login unavailable: {self._login_error}")
+
+            mfa_code: Optional[str] = None
+            if settings.rh_mfa_secret:
+                try:
                     mfa_code = pyotp.TOTP(settings.rh_mfa_secret).now()
+                    logger.debug("Robinhood: generated TOTP MFA code.")
+                except Exception as exc:
+                    self._login_failed = True
+                    self._login_error = (
+                        f"Invalid RH_MFA_SECRET — TOTP generation failed: {exc}. "
+                        "RH_MFA_SECRET must be the base-32 TOTP secret, not a numeric code."
+                    )
+                    logger.error(f"Robinhood: {self._login_error}")
+                    raise RuntimeError(f"Robinhood login unavailable: {self._login_error}")
+
+            logger.info(
+                f"Robinhood: attempting password login for {settings.rh_username!r} "
+                f"(MFA: {'yes' if mfa_code else 'no'})."
+            )
+            try:
                 await asyncio.get_event_loop().run_in_executor(
                     None,
-                    partial(rh.login, settings.rh_username, settings.rh_password,
-                            mfa_code=mfa_code, store_session=True),
+                    partial(
+                        rh.login,
+                        settings.rh_username,
+                        settings.rh_password,
+                        mfa_code=mfa_code,
+                        store_session=True,
+                    ),
                 )
                 self._authenticated = True
-                logger.info("Robinhood session established.")
+                logger.info("Robinhood: password login successful.")
             except Exception as exc:
+                raw = str(exc)
+                classified = self._classify_login_error(raw)
                 self._login_failed = True
-                self._login_error = str(exc)
-                logger.error(f"Robinhood login failed: {exc}")
-                raise RuntimeError(f"Robinhood authentication error: {exc}") from exc
+                self._login_error = classified
+                logger.error(f"Robinhood login failed — {classified} (raw: {raw!r})")
+                raise RuntimeError(f"Robinhood login unavailable: {classified}") from exc
 
     async def _run(self, fn, *args, **kwargs):
         """Run a blocking robin_stocks call in a thread pool."""
