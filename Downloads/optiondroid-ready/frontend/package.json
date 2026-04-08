@@ -1,0 +1,41 @@
+{
+  "name": "options-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "export": "next build",
+    "mobile:build": "npm run build",
+    "mobile:sync": "npm run mobile:build && npx cap sync android",
+    "mobile:open": "npx cap open android",
+    "mobile:apk": "npm run mobile:sync && echo Open Android Studio and build APK from Build > Build Bundle(s) / APK(s) > Build APK(s)"
+  },
+  "dependencies": {
+    "next": "14.2.3",
+    "react": "^18",
+    "react-dom": "^18",
+    "recharts": "^2.12.7",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.396.0",
+    "swr": "^2.2.5",
+    "papaparse": "^5.4.1",
+    "@capacitor/core": "^7.4.2",
+    "@capacitor/android": "^7.4.2"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/papaparse": "^5.3.14",
+    "tailwindcss": "^3.4.4",
+    "postcss": "^8",
+    "autoprefixer": "^10",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "@capacitor/cli": "^7.4.2"
+  }
+}

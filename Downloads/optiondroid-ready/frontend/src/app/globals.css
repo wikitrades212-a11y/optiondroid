@@ -1,0 +1,69 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-bg-base text-text-primary font-sans;
+    min-height: 100vh;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-base;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted;
+  }
+}
+
+@layer components {
+  .table-cell {
+    @apply px-3 py-2 text-sm font-mono tabular-nums;
+  }
+  .table-head {
+    @apply px-3 py-2 text-2xs font-semibold uppercase tracking-widest text-text-muted;
+  }
+  .card {
+    @apply bg-bg-surface border border-bg-border rounded-xl p-4;
+  }
+  .btn-primary {
+    @apply bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg
+           hover:bg-accent-hover transition-colors;
+  }
+  .btn-ghost {
+    @apply text-text-secondary text-sm font-medium px-3 py-1.5 rounded-lg
+           hover:bg-bg-raised hover:text-text-primary transition-colors;
+  }
+  .input {
+    @apply bg-bg-raised border border-bg-border rounded-lg px-3 py-2
+           text-sm text-text-primary placeholder:text-text-muted
+           focus:outline-none focus:border-accent transition-colors;
+  }
+  .badge-call {
+    @apply text-2xs font-semibold px-1.5 py-0.5 rounded bg-call-bg text-call uppercase tracking-wider;
+  }
+  .badge-put {
+    @apply text-2xs font-semibold px-1.5 py-0.5 rounded bg-put-bg text-put uppercase tracking-wider;
+  }
+  .tag {
+    @apply text-2xs font-medium px-2 py-0.5 rounded-full border;
+  }
+  .skeleton {
+    @apply bg-bg-raised rounded animate-pulse;
+  }
+}
